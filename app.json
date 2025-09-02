@@ -1,0 +1,88 @@
+{
+  "expo": {
+    "name": "Food Rescue",
+    "slug": "food-rescue",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/icon.png",
+    "scheme": "food-rescue",
+    "userInterfaceStyle": "automatic",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/images/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#22c55e"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "This app uses location to show nearby food donations and calculate pickup routes.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "This app uses location to show nearby food donations and calculate pickup routes.",
+        "NSCameraUsageDescription": "This app uses camera to take photos of food donations.",
+        "NSPhotoLibraryUsageDescription": "This app uses photo library to select images for food donations."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "backgroundColor": "#22c55e"
+      },
+      "edgeToEdgeEnabled": true,
+      "permissions": [
+        "ACCESS_FINE_LOCATION",
+        "ACCESS_COARSE_LOCATION",
+        "CAMERA",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#22c55e",
+          "image": "./assets/images/splash-icon.png",
+          "dark": {
+            "backgroundColor": "#16a34a",
+            "image": "./assets/images/splash-icon.png"
+          },
+          "imageWidth": 200
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Food Rescue to use your location to show nearby donations and calculate pickup routes.",
+          "locationWhenInUsePermission": "Allow Food Rescue to use your location to show nearby donations and calculate pickup routes."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you share food donation images.",
+          "cameraPermission": "The app accesses your camera to let you take photos of food donations."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#22c55e",
+          "defaultChannel": "food-rescue-notifications"
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
