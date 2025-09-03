@@ -1,18 +1,18 @@
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import { doc, updateDoc } from 'firebase/firestore';
 import React, { useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  Alert,
+    Alert,
+    StyleSheet,
+    Text,
+    View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useAuth } from '../../contexts/AuthContext';
-import { NGOSelection } from '../../components/ui/NGOSelection';
 import { Button } from '../../components/ui/Button';
-import { doc, updateDoc } from 'firebase/firestore';
+import { NGOSelection } from '../../components/ui/NGOSelection';
 import { db } from '../../config/firebase';
+import { useAuth } from '../../contexts/AuthContext';
 
 export default function VolunteerSetupScreen() {
   const { user } = useAuth();
@@ -26,17 +26,8 @@ export default function VolunteerSetupScreen() {
       // Update user document in Firestore
       const userRef = doc(db, 'users', user.id);
       await updateDoc(userRef, { selectedNGOs });
-      
-      Alert.alert(
-        'Setup Complete!', 
-        'You can now receive pickup notifications from your selected NGOs.',
-        [
-          {
-            text: 'Continue',
-            onPress: () => router.replace('/(tabs)/home')
-          }
-        ]
-      );
+      // Navigate immediately to dashboard (tabs/home)
+      router.replace('/(tabs)/home');
     } catch (error) {
       console.error('Error updating NGO selection:', error);
       Alert.alert('Error', 'Failed to save your preferences. Please try again.');
@@ -46,20 +37,8 @@ export default function VolunteerSetupScreen() {
   };
 
   const handleSkip = () => {
-    Alert.alert(
-      'Skip Setup?',
-      'You can select NGOs later from your profile. You won\'t receive pickup notifications until you choose NGOs to work with.',
-      [
-        {
-          text: 'Go Back',
-          style: 'cancel'
-        },
-        {
-          text: 'Skip for Now',
-          onPress: () => router.replace('/(tabs)/home')
-        }
-      ]
-    );
+    // Direct navigation without modal prompts for web compatibility
+    router.replace('/(tabs)/home');
   };
 
   if (!user || user.role !== 'volunteer') {
@@ -99,6 +78,7 @@ export default function VolunteerSetupScreen() {
               variant="outline"
               style={styles.skipButton}
               textStyle={styles.skipButtonText}
+              disabled={loading}
             />
           </View>
         </View>

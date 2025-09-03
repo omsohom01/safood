@@ -6,7 +6,6 @@ import { router, useRootNavigationState } from "expo-router"
 import { useEffect, useRef } from "react"
 import { Animated, Dimensions, StyleSheet, Text, TouchableOpacity, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
-import { HamburgerMenu } from "../../components/ui/HamburgerMenu"
 
 const { width, height } = Dimensions.get('window')
 
@@ -84,9 +83,6 @@ export default function WelcomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      {/* Hamburger Menu */}
-      <HamburgerMenu currentRoute="/" />
-      
       {/* Background Animated Circles */}
       <Animated.View
         style={[
@@ -155,9 +151,9 @@ export default function WelcomeScreen() {
             <Text
               style={{
                 color: "white",
-                fontSize: 9,
-                fontWeight: "200",
-                letterSpacing: 3,
+                fontSize: 12,
+                fontWeight: "600",
+                letterSpacing: 2,
               }}
             >
               SAFOOD
@@ -175,7 +171,7 @@ export default function WelcomeScreen() {
             // If user is logged in, show Dashboard button
             <TouchableOpacity
               style={styles.primaryButton}
-              onPress={() => router.push("/home")}
+              onPress={() => router.push("/(tabs)/home")}
               accessibilityRole="button"
               accessibilityLabel="Go to Dashboard"
             >
@@ -276,8 +272,8 @@ const styles = StyleSheet.create({
   logoBadge: {
     backgroundColor: "#22c55e",
     paddingHorizontal: 20,
-    paddingVertical: 12,
-    borderRadius: 25,
+    paddingVertical: 36,
+    borderRadius: 12,
     marginBottom: 24,
     shadowColor: "#22c55e",
     shadowOffset: {

@@ -101,7 +101,15 @@ export class LocationService {
   static async forwardGeocode(address: string): Promise<LocationCoords | null> {
     try {
       if (Platform.OS === 'web') {
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`;
+        // Prioritize India locations by adding country bias
+        const enhancedAddress = address.toLowerCase().includes('india') || 
+                              address.toLowerCase().includes('bengal') ||
+                              address.toLowerCase().includes('kolkata') ||
+                              address.toLowerCase().includes('west bengal')
+          ? address
+          : `${address}, India`;
+          
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(enhancedAddress)}&limit=5&countrycodes=in&bounded=1&viewbox=68.1766451354,37.6017073906,97.4025614766,6.4626999097`;
         const response = await fetch(url, {
           headers: {
             'Accept': 'application/json',
@@ -112,11 +120,38 @@ export class LocationService {
         if (!response.ok) return null;
         
         const data = await response.json();
-        if (data.length === 0) return null;
+        if (data.length === 0) {
+          // Try again without India bias if no results
+          const fallbackUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(address)}&limit=1`;
+          const fallbackResponse = await fetch(fallbackUrl, {
+            headers: {
+              'Accept': 'application/json',
+              'User-Agent': 'FoodRescueApp/1.0'
+            },
+          });
+          
+          if (!fallbackResponse.ok) return null;
+          const fallbackData = await fallbackResponse.json();
+          if (fallbackData.length === 0) return null;
+          
+          return {
+            latitude: parseFloat(fallbackData[0].lat),
+            longitude: parseFloat(fallbackData[0].lon)
+          };
+        }
+        
+        // Prefer results in India
+        const indiaResult = data.find((result: any) => 
+          result.display_name.toLowerCase().includes('india') ||
+          result.display_name.toLowerCase().includes('west bengal') ||
+          result.display_name.toLowerCase().includes('bengal')
+        );
+        
+        const bestResult = indiaResult || data[0];
         
         return {
-          latitude: parseFloat(data[0].lat),
-          longitude: parseFloat(data[0].lon)
+          latitude: parseFloat(bestResult.lat),
+          longitude: parseFloat(bestResult.lon)
         };
       } else {
         const results = await Location.geocodeAsync(address);

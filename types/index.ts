@@ -41,6 +41,8 @@ export interface FoodDonation {
   assignedVolunteer?: string; // Volunteer ID
   assignedVolunteerName?: string;
   volunteerStatus?: 'pending' | 'accepted' | 'rejected'; // Volunteer response status
+  // NGOs that have explicitly rejected this donation (should not see it again)
+  rejectedByNGOs?: string[];
   createdAt: Date;
   updatedAt: Date;
   isUrgent?: boolean;

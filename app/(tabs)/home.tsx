@@ -1,64 +1,224 @@
-import React, { useState, useEffect } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import { router } from 'expo-router';
+import React, { useEffect, useRef, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  RefreshControl,
-  TouchableOpacity,
-  FlatList,
+  ActivityIndicator,
   Alert,
+  Animated,
+  Dimensions,
+  FlatList,
   Linking,
   Platform,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import { LocationService } from '../../services/locationService';
-import { useAuth } from '../../contexts/AuthContext';
-import { FoodCard } from '../../components/ui/FoodCard';
-import { StatCard } from '../../components/ui/StatCard';
 import { Button } from '../../components/ui/Button';
+import { FoodCard } from '../../components/ui/FoodCard';
+import { HamburgerMenu } from '../../components/ui/HamburgerMenu';
+import { StatCard } from '../../components/ui/StatCard';
 import VolunteerDashboard from '../../components/ui/VolunteerDashboard';
-import { donationService, analyticsService } from '../../services/firebaseService';
+import { useAuth } from '../../contexts/AuthContext';
+import { analyticsService, donationService } from '../../services/firebaseService';
+import { LocationService } from '../../services/locationService';
 import { FoodDonation, NGOAnalytics, VolunteerStats } from '../../types';
 
+const { width, height } = Dimensions.get('window');
+
 export default function HomeScreen() {
-  const { user } = useAuth();
+  const { user, isLoading } = useAuth();
   const [donations, setDonations] = useState<FoodDonation[]>([]);
   const [analytics, setAnalytics] = useState<NGOAnalytics | null>(null);
   const [volunteerStats, setVolunteerStats] = useState<VolunteerStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  // If user is a volunteer, show the dedicated volunteer dashboard
-  if (user?.role === 'volunteer') {
-    return <VolunteerDashboard />;
-  }
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const headerAnim = useRef(new Animated.Value(-50)).current;
+  const statsAnim = useRef(new Animated.Value(30)).current;
+  const contentAnim = useRef(new Animated.Value(40)).current;
+  const backgroundAnim = useRef(new Animated.Value(0)).current;
+  const shimmerAnim = useRef(new Animated.Value(0)).current;
+  const profilePulseAnim = useRef(new Animated.Value(1)).current;
+  const profileRotateAnim = useRef(new Animated.Value(0)).current;
+  
+  // Background floating elements
+  const circles = useRef(
+    Array.from({ length: 6 }, (_, i) => ({
+      anim: new Animated.ValueXY({
+        x: Math.random() * width,
+        y: Math.random() * height,
+      }),
+      size: Math.random() * 80 + 40,
+      opacity: Math.random() * 0.04 + 0.01,
+      color: ['#22c55e', '#10b981', '#16a34a', '#059669', '#047857', '#065f46'][i],
+    }))
+  ).current;
 
+  // One-time animations setup
+  useEffect(() => {
+    // Entrance animations
+    const entrance = Animated.sequence([
+      Animated.parallel([
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(headerAnim, {
+          toValue: 0,
+          duration: 600,
+          useNativeDriver: true,
+        }),
+      ]),
+      Animated.stagger(200, [
+        Animated.timing(statsAnim, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(contentAnim, {
+          toValue: 0,
+          duration: 500,
+          useNativeDriver: true,
+        }),
+      ]),
+    ]);
+    entrance.start();
+
+    // Background animations
+    const bgLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(backgroundAnim, {
+          toValue: 1,
+          duration: 5000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backgroundAnim, {
+          toValue: 0,
+          duration: 5000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    bgLoop.start();
+
+    // Shimmer effect
+    const shimmerLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmerAnim, {
+          toValue: 1,
+          duration: 3500,
+          useNativeDriver: true,
+        }),
+        Animated.timing(shimmerAnim, {
+          toValue: 0,
+          duration: 3500,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    shimmerLoop.start();
+
+    // Floating circles animation
+    circles.forEach((circle, index) => {
+      const animateCircle = () => {
+        Animated.timing(circle.anim, {
+          toValue: {
+            x: Math.random() * width,
+            y: Math.random() * height,
+          },
+          duration: 10000 + Math.random() * 5000,
+          useNativeDriver: false,
+        }).start(() => animateCircle());
+      };
+      const timer = setTimeout(() => animateCircle(), index * 800);
+      // Store timer on the circle object for cleanup
+      // @ts-expect-error: augmenting for cleanup tracking
+      circle._timer = timer;
+    });
+
+    // Profile button animations
+    const pulseLoop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(profilePulseAnim, {
+          toValue: 1.1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+        Animated.timing(profilePulseAnim, {
+          toValue: 1,
+          duration: 2000,
+          useNativeDriver: true,
+        }),
+      ])
+    );
+    pulseLoop.start();
+
+    const rotateLoop = Animated.loop(
+      Animated.timing(profileRotateAnim, {
+        toValue: 1,
+        duration: 20000,
+        useNativeDriver: true,
+      })
+    );
+    rotateLoop.start();
+
+    return () => {
+      try { entrance.stop(); } catch {}
+      try { bgLoop.stop(); } catch {}
+      try { shimmerLoop.stop(); } catch {}
+      try { pulseLoop.stop(); } catch {}
+      try { rotateLoop.stop(); } catch {}
+      circles.forEach((circle: any) => {
+        if (circle?._timer) clearTimeout(circle._timer);
+      });
+    };
+  }, []);
+
+  // Data load + subscriptions per role
   useEffect(() => {
     loadData();
-    // Subscribe to real-time updates per role
     if (!user) return;
     let unsubscribe: (() => void) | null = null;
     if (user.role === 'donor') {
       unsubscribe = donationService.subscribeToUserDonations(user.id, setDonations);
     } else if (user.role === 'ngo') {
-      unsubscribe = donationService.subscribeToAvailableDonations((items) => {
-        // Combine live listed with already-claimed by this NGO
+      const unsubAvail = donationService.subscribeToAvailableDonations((availableItems) => {
         setDonations((prev) => {
           const claimed = prev.filter(d => d.claimedBy === user.id);
-          const map = new Map<string, any>();
-          [...claimed, ...items].forEach(d => map.set(d.id, d));
+          const filteredAvailable = availableItems.filter(d => !(d.rejectedByNGOs || []).includes(user.id));
+          const map = new Map<string, FoodDonation>();
+          [...claimed, ...filteredAvailable].forEach(d => map.set(d.id, d));
           return Array.from(map.values());
         });
       });
+      const unsubClaimed = donationService.subscribeToClaimedDonations(user.id, (claimedItems) => {
+        setDonations((prev) => {
+          const available = prev.filter(d => d.status === 'listed');
+          const map = new Map<string, FoodDonation>();
+          [...claimedItems, ...available].forEach(d => map.set(d.id, d));
+          return Array.from(map.values());
+        });
+      });
+      unsubscribe = () => { unsubAvail(); unsubClaimed(); };
     }
     return () => { if (unsubscribe) unsubscribe(); };
   }, [user]);
 
-  const loadData = async () => {
+  // If user is a volunteer, show the dedicated volunteer dashboard
+  // Note: placed after all hooks to maintain consistent hook order across renders
+  if (user?.role === 'volunteer') {
+    return <VolunteerDashboard />;
+  }
+
+  async function loadData() {
     if (!user) return;
 
     try {
@@ -66,9 +226,11 @@ export default function HomeScreen() {
   const userDonations = await donationService.getDonationsByUser(user.id);
   setDonations(userDonations);
       } else if (user.role === 'ngo') {
-        const availableDonations = await donationService.getAvailableDonations();
-        const claimedDonations = await donationService.getClaimedDonations(user.id);
-        setDonations([...claimedDonations, ...availableDonations.slice(0, 5)]);
+  const availableDonations = await donationService.getAvailableDonations();
+  const claimedDonations = (await donationService.getClaimedDonations(user.id)).filter(d => d.status !== 'delivered');
+  // Filter out donations this NGO has rejected
+  const filteredAvailable = availableDonations.filter(d => !(d.rejectedByNGOs || []).includes(user.id));
+  setDonations([...claimedDonations, ...filteredAvailable]);
         
         const ngoAnalytics = await analyticsService.getNGOAnalytics(user.id);
         setAnalytics(ngoAnalytics);
@@ -86,7 +248,7 @@ export default function HomeScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  };
+  }
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -103,9 +265,32 @@ export default function HomeScreen() {
     
     try {
       await donationService.claimDonation(donationId, user.id, user.name);
-      loadData(); // Refresh data
+      // Refresh analytics so Meals Saved updates immediately
+      try {
+        const ngoAnalytics = await analyticsService.getNGOAnalytics(user.id);
+        setAnalytics(ngoAnalytics);
+      } catch {}
     } catch (error) {
       console.error('Error claiming donation:', error);
+    }
+  };
+
+  const handleRejectDonationAsNGO = async (donationId: string) => {
+    if (!user || user.role !== 'ngo') return;
+    try {
+      await donationService.rejectDonationForNGO(donationId, user.id);
+      loadData();
+    } catch (error) {
+      console.error('Error rejecting donation:', error);
+    }
+  };
+
+  const handleMarkDelivered = async (donationId: string) => {
+    try {
+      await donationService.markDonationDelivered(donationId);
+      loadData();
+    } catch (error) {
+      console.error('Error marking delivered:', error);
     }
   };
 
@@ -218,17 +403,18 @@ export default function HomeScreen() {
             icon: 'checkmark-circle' as const,
             color: '#3b82f6',
           },
+          // Optional: Claimed/Assigned count card could be added here
         ];
       case 'volunteer':
         return [
           {
-            title: 'Deliveries Made',
+            title: 'Deliveries',
             value: volunteerStats?.totalDeliveries || 0,
             icon: 'car' as const,
             color: '#f97316',
           },
           {
-            title: 'Meals Delivered',
+            title: 'Meals Saved',
             value: volunteerStats?.totalMealsSaved || 0,
             icon: 'heart' as const,
             color: '#ef4444',
@@ -244,6 +430,7 @@ export default function HomeScreen() {
           },
           {
             title: 'Pending',
+            // Count only this donor's still-listed items
             value: donations.filter(d => d.status === 'listed').length,
             icon: 'time' as const,
             color: '#f59e0b',
@@ -258,7 +445,7 @@ export default function HomeScreen() {
         return (
           <Button
             title="Add New Donation"
-            onPress={() => router.push('/(tabs)/add')}
+            onPress={() => router.push('/add')}
             size="large"
             style={styles.actionButton}
           />
@@ -267,7 +454,7 @@ export default function HomeScreen() {
         return (
           <Button
             title="Browse Donations"
-            onPress={() => router.push('/(tabs)/map')}
+            onPress={() => router.push('/map')}
             size="large"
             style={styles.actionButton}
           />
@@ -276,7 +463,7 @@ export default function HomeScreen() {
         return (
           <Button
             title="Find Pickups"
-            onPress={() => router.push('/(tabs)/map')}
+            onPress={() => router.push('/map')}
             size="large"
             style={styles.actionButton}
           />
@@ -286,127 +473,289 @@ export default function HomeScreen() {
     }
   };
 
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#22c55e" />
+        <Text style={styles.loadingText}>Loading...</Text>
+      </View>
+    );
+  }
+
   if (!user) {
     return null;
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-      >
-        {/* Header */}
-        <LinearGradient colors={['#22c55e', '#16a34a']} style={styles.header}>
-          <View style={styles.headerContent}>
-            <View>
-              <Text style={styles.greeting}>{getGreeting()},</Text>
-              <Text style={styles.userName}>{user.name}</Text>
-              <Text style={styles.userRole}>{user.role.toUpperCase()}</Text>
-            </View>
-            <TouchableOpacity style={styles.profileButton}>
-              <Ionicons name="person-circle" size={40} color="#ffffff" />
-            </TouchableOpacity>
-          </View>
-        </LinearGradient>
+    <>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" translucent={false} />
+      <View style={styles.container}>
+        {/* Background Animation Elements */}
+        <Animated.View 
+          style={[
+            styles.backgroundGradient,
+            {
+              opacity: backgroundAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.02, 0.06]
+              })
+            }
+          ]}
+        />
+        
+        {/* Floating Background Circles */}
+        {circles.map((circle, index) => (
+          <Animated.View 
+            key={index}
+            style={[
+              styles.floatingCircle,
+              {
+                width: circle.size,
+                height: circle.size,
+                backgroundColor: circle.color,
+                opacity: circle.opacity,
+                transform: [
+                  { translateX: circle.anim.x },
+                  { translateY: circle.anim.y }
+                ]
+              }
+            ]}
+          />
+        ))}
 
-        <View style={styles.content}>
-          {/* Stats Cards */}
-          <View style={styles.statsContainer}>
-            {getDashboardData().map((stat, index) => (
-              <View key={index} style={styles.statCard}>
-                <StatCard
-                  title={stat.title}
-                  value={stat.value}
-                  icon={stat.icon}
-                  color={stat.color}
-                />
+        {/* Shimmer Effect */}
+        <Animated.View 
+          style={[
+            styles.shimmerOverlay,
+            {
+              opacity: shimmerAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0, 0.03]
+              })
+            }
+          ]}
+        />
+
+        <SafeAreaView style={styles.safeArea}>
+          {/* Hamburger Menu */}
+          <HamburgerMenu currentRoute="/(tabs)/home" />
+          
+          <Animated.View style={[styles.animatedContainer, { opacity: fadeAnim }]}>
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+            >
+              {/* Header */}
+              <Animated.View 
+                style={[
+                  styles.header,
+                  { transform: [{ translateY: headerAnim }] }
+                ]}
+              >
+                <View style={styles.headerContent}>
+                  <View>
+                    <Text style={styles.greeting}>{getGreeting()},</Text>
+                    <Text style={styles.userName}>{user.name}</Text>
+                    <View style={styles.roleBadge}>
+                      <Text style={styles.userRole}>{user.role.toUpperCase()}</Text>
+                    </View>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.profileButton}
+                    onPress={() => router.push('/profile')}
+                    activeOpacity={0.8}
+                  >
+                    <Animated.View 
+                      style={[
+                        styles.profileCircle,
+                        {
+                          transform: [
+                            { scale: profilePulseAnim },
+                            {
+                              rotate: profileRotateAnim.interpolate({
+                                inputRange: [0, 1],
+                                outputRange: ['0deg', '360deg'],
+                              }),
+                            },
+                          ],
+                        }
+                      ]}
+                    >
+                      <View style={styles.profileInnerCircle}>
+                        <Ionicons name="person" size={20} color="#22c55e" />
+                      </View>
+                    </Animated.View>
+                    <View style={styles.profileGlow} />
+                    <View style={styles.profileRing} />
+                  </TouchableOpacity>
+                </View>
+              </Animated.View>
+
+              <View style={styles.content}>
+                {/* Stats Cards */}
+                <Animated.View 
+                  style={[
+                    styles.statsContainer,
+                    { transform: [{ translateY: statsAnim }] }
+                  ]}
+                >
+                  {getDashboardData().map((stat, index) => (
+                    <View key={index} style={styles.statCard}>
+                      <StatCard
+                        title={stat.title}
+                        value={stat.value}
+                        icon={stat.icon}
+                        color={stat.color}
+                      />
+                    </View>
+                  ))}
+                </Animated.View>
+
+                {/* Action Button */}
+                <Animated.View 
+                  style={[
+                    styles.actionButtonContainer,
+                    { transform: [{ translateY: contentAnim }] }
+                  ]}
+                >
+                  {getActionButton()}
+                </Animated.View>
+
+                {/* Recent Activity */}
+                <Animated.View 
+                  style={[
+                    styles.section,
+                    { transform: [{ translateY: contentAnim }] }
+                  ]}
+                >
+                  <View style={styles.sectionHeader}>
+                    <Text style={styles.sectionTitle}>
+                      {user.role === 'donor' ? 'Your Donations' : 
+                       user.role === 'ngo' ? 'Available & Claimed' : 
+                       'Available Pickups'}
+                    </Text>
+                    <TouchableOpacity onPress={() => router.push('/(tabs)/all')}>
+                      <Text style={styles.seeAllText}>See All</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {donations.length > 0 ? (
+                    <FlatList
+                      data={donations.slice(0, 3)}
+                      keyExtractor={(item) => item.id}
+                      renderItem={({ item }) => (
+                        <FoodCard
+                          donation={item}
+                          onPress={() => handleDonationPress(item)}
+                          viewerRole={user.role}
+                          viewerUserId={user.id}
+                          actionLabel={
+                            user.role === 'ngo' && item.status === 'listed' ? 'Accept' :
+                            user.role === 'ngo' && (item.status === 'assigned' || item.status === 'picked_up') && item.claimedBy === user.id ? 'Mark Delivered' :
+                            user.role === 'volunteer' && item.status === 'claimed' && !item.assignedVolunteer ? 'Accept' :
+                            undefined
+                          }
+                          onActionPress={
+                            user.role === 'ngo' && item.status === 'listed' ? 
+                              () => handleClaimDonation(item.id) :
+                            user.role === 'ngo' && (item.status === 'assigned' || item.status === 'picked_up') && item.claimedBy === user.id ?
+                              () => handleMarkDelivered(item.id) :
+                            user.role === 'volunteer' && item.status === 'claimed' && !item.assignedVolunteer ? 
+                              () => handleAcceptPickup(item.id) :
+                              undefined
+                          }
+                          secondaryActionLabel={
+                            user.role === 'ngo' && item.status === 'listed' ? 'Reject' :
+                            user.role === 'volunteer' && item.status === 'claimed' && !item.assignedVolunteer ? 'Reject' : undefined
+                          }
+                          onSecondaryActionPress={
+                            user.role === 'ngo' && item.status === 'listed' ? 
+                              () => handleRejectDonationAsNGO(item.id) :
+                            user.role === 'volunteer' && item.status === 'claimed' && !item.assignedVolunteer ? 
+                              () => handleRejectPickup(item.id) : undefined
+                          }
+                        />
+                      )}
+                      scrollEnabled={false}
+                    />
+                  ) : (
+                    <View style={styles.emptyState}>
+                      <Ionicons name="fast-food-outline" size={64} color="#9ca3af" />
+                      <Text style={styles.emptyStateText}>
+                        {user.role === 'donor' ? 'No donations yet' :
+                         user.role === 'ngo' ? 'No donations available' :
+                         'No pickups available'}
+                      </Text>
+                      <Text style={styles.emptyStateSubtext}>
+                        {user.role === 'donor' ? 'Start by adding your first food donation' :
+                         user.role === 'ngo' ? 'Check back later for new donations' :
+                         'Check back later for pickup opportunities'}
+                      </Text>
+                    </View>
+                  )}
+                </Animated.View>
               </View>
-            ))}
-          </View>
-
-          {/* Action Button */}
-          {getActionButton()}
-
-          {/* Recent Activity */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>
-                {user.role === 'donor' ? 'Your Donations' : 
-                 user.role === 'ngo' ? 'Available & Claimed' : 
-                 'Available Pickups'}
-              </Text>
-              <TouchableOpacity onPress={() => router.push('/(tabs)/home')}>
-                <Text style={styles.seeAllText}>See All</Text>
-              </TouchableOpacity>
-            </View>
-
-            {donations.length > 0 ? (
-              <FlatList
-                data={donations.slice(0, 3)}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
-                  <FoodCard
-                    donation={item}
-                    onPress={() => handleDonationPress(item)}
-                    viewerRole={user.role}
-                    viewerUserId={user.id}
-                    actionLabel={
-                      user.role === 'ngo' && item.status === 'listed' ? 'Claim' :
-                      user.role === 'volunteer' && item.status === 'claimed' && !item.assignedVolunteer ? 'Accept' :
-                      undefined
-                    }
-                    onActionPress={
-                      user.role === 'ngo' && item.status === 'listed' ? 
-                        () => handleClaimDonation(item.id) :
-                      user.role === 'volunteer' && item.status === 'claimed' && !item.assignedVolunteer ? 
-                        () => handleAcceptPickup(item.id) :
-                        undefined
-                    }
-                    secondaryActionLabel={
-                      user.role === 'volunteer' && item.status === 'claimed' && !item.assignedVolunteer ? 'Reject' : undefined
-                    }
-                    onSecondaryActionPress={
-                      user.role === 'volunteer' && item.status === 'claimed' && !item.assignedVolunteer ? 
-                        () => handleRejectPickup(item.id) : undefined
-                    }
-                  />
-                )}
-                scrollEnabled={false}
-              />
-            ) : (
-              <View style={styles.emptyState}>
-                <Ionicons name="fast-food-outline" size={64} color="#9ca3af" />
-                <Text style={styles.emptyStateText}>
-                  {user.role === 'donor' ? 'No donations yet' :
-                   user.role === 'ngo' ? 'No donations available' :
-                   'No pickups available'}
-                </Text>
-                <Text style={styles.emptyStateSubtext}>
-                  {user.role === 'donor' ? 'Start by adding your first food donation' :
-                   user.role === 'ngo' ? 'Check back later for new donations' :
-                   'Check back later for pickup opportunities'}
-                </Text>
-              </View>
-            )}
-          </View>
-        </View>
-      </ScrollView>
-    </SafeAreaView>
+            </ScrollView>
+          </Animated.View>
+        </SafeAreaView>
+      </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#ffffff',
+    overflow: 'hidden',
+  },
+  
+  // Background animation elements
+  backgroundGradient: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(34, 197, 94, 0.01)',
+    zIndex: -1,
+  },
+  floatingCircle: {
+    position: 'absolute',
+    borderRadius: 1000,
+    zIndex: -1,
+  },
+  shimmerOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(34, 197, 94, 0.005)',
+    zIndex: -1,
+  },
+  
+  safeArea: {
+    flex: 1,
+  },
+  animatedContainer: {
+    flex: 1,
   },
   header: {
     paddingHorizontal: 24,
     paddingTop: 20,
     paddingBottom: 30,
+    backgroundColor: '#ffffff',
     borderBottomLeftRadius: 24,
     borderBottomRightRadius: 24,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
   },
   headerContent: {
     flexDirection: 'row',
@@ -415,22 +764,84 @@ const styles = StyleSheet.create({
   },
   greeting: {
     fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.9)',
+    color: '#6b7280',
     marginBottom: 4,
+    fontWeight: '400',
   },
   userName: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginBottom: 4,
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 8,
+  },
+  roleBadge: {
+    backgroundColor: '#22c55e',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
   },
   userRole: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.8)',
+    fontSize: 10,
+    color: '#ffffff',
     fontWeight: '600',
+    letterSpacing: 1,
   },
   profileButton: {
-    opacity: 0.9,
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  profileCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#22c55e',
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(34, 197, 94, 0.3)',
+  },
+  profileInnerCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  profileGlow: {
+    position: 'absolute',
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(34, 197, 94, 0.1)',
+    zIndex: -1,
+  },
+  profileRing: {
+    position: 'absolute',
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.2)',
+    zIndex: -1,
   },
   content: {
     padding: 24,
@@ -444,8 +855,21 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: 4,
   },
-  actionButton: {
+  actionButtonContainer: {
     marginBottom: 32,
+  },
+  actionButton: {
+    backgroundColor: '#22c55e',
+    borderRadius: 16,
+    paddingVertical: 16,
+    shadowColor: '#22c55e',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   section: {
     marginBottom: 24,
@@ -458,7 +882,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#111827',
   },
   seeAllText: {
@@ -469,6 +893,9 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     paddingVertical: 40,
+    backgroundColor: '#ffffff',
+    borderRadius: 16,
+    marginTop: 8,
   },
   emptyStateText: {
     fontSize: 18,
@@ -482,5 +909,18 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     textAlign: 'center',
     lineHeight: 20,
+    paddingHorizontal: 20,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '500',
   },
 });

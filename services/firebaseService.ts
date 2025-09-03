@@ -1,21 +1,21 @@
 import {
-  collection,
-  doc,
-  addDoc,
-  updateDoc,
-  deleteDoc,
-  getDoc,
-  getDocs,
-  setDoc,
-  query,
-  where,
-  orderBy,
-  onSnapshot,
-  Timestamp,
-  limit
+    addDoc,
+    arrayUnion,
+    collection,
+    doc,
+    getDoc,
+    getDocs,
+    limit,
+    onSnapshot,
+    orderBy,
+    query,
+    setDoc,
+    Timestamp,
+    updateDoc,
+    where
 } from 'firebase/firestore';
 import { db } from '../config/firebase';
-import { FoodDonation, DonationStatus, AppNotification, NGOAnalytics, VolunteerStats } from '../types';
+import { AppNotification, DonationStatus, FoodDonation, NGOAnalytics, VolunteerStats } from '../types';
 
 // Helpers to safely convert Firestore timestamps to JS Dates
 const toJsDate = (v: any): Date | undefined => {
@@ -151,6 +151,11 @@ export const donationService = {
         updatedAt: Timestamp.fromDate(new Date()),
       });
 
+      // Immediately reflect impact for NGO: count a meal saved on accept
+      try {
+        await analyticsService.updateNGOAnalytics(ngoId, 1, 0);
+      } catch {}
+
       // Notify donor about claim
       try {
         const donationDoc = await getDoc(doc(db, 'donations', donationId));
@@ -190,6 +195,83 @@ export const donationService = {
       } catch {}
     } catch (error) {
       console.error('Error claiming donation:', error);
+      throw error;
+    }
+  },
+
+  // Mark a donation as delivered (by NGO after driver completes)
+  async markDonationDelivered(donationId: string): Promise<void> {
+    try {
+      const donationRef = doc(db, 'donations', donationId);
+      const donationSnap = await getDoc(donationRef);
+      if (!donationSnap.exists()) throw new Error('Donation not found');
+      const donation = donationSnap.data() as any;
+
+      // Update donation status to delivered
+      await updateDoc(donationRef, {
+        status: 'delivered',
+        deliveredAt: Timestamp.fromDate(new Date()),
+        updatedAt: Timestamp.fromDate(new Date()),
+      });
+
+      // Update NGO analytics: +1 delivery
+      if (donation?.claimedBy) {
+        try { await analyticsService.updateNGOAnalytics(donation.claimedBy, 0, 1); } catch {}
+      }
+
+      // Update volunteer stats: +1 delivery, +1 meal saved (approx)
+      if (donation?.assignedVolunteer) {
+        try { await analyticsService.updateVolunteerStats(donation.assignedVolunteer, 1, 1); } catch {}
+      }
+
+      // Notify relevant users
+      try {
+        if (donation?.donorId) {
+          await notificationService.createNotification({
+            userId: donation.donorId,
+            title: 'Donation Delivered',
+            message: `Your donation "${donation.title}" has been delivered. Thank you!`,
+            type: 'delivery_completed',
+            isRead: false,
+            relatedDonationId: donationId,
+          });
+        }
+        if (donation?.claimedBy) {
+          await notificationService.createNotification({
+            userId: donation.claimedBy,
+            title: 'Delivery Completed',
+            message: `The donation "${donation.title}" has been delivered successfully.`,
+            type: 'delivery_completed',
+            isRead: false,
+            relatedDonationId: donationId,
+          });
+        }
+        if (donation?.assignedVolunteer) {
+          await notificationService.createNotification({
+            userId: donation.assignedVolunteer,
+            title: 'Delivery Marked Delivered',
+            message: `Thanks! "${donation.title}" was marked delivered.`,
+            type: 'delivery_completed',
+            isRead: false,
+            relatedDonationId: donationId,
+          });
+        }
+      } catch {}
+    } catch (error) {
+      console.error('Error marking donation delivered:', error);
+      throw error;
+    }
+  },
+
+  // NGO rejects a donation from their view (hide for that NGO)
+  async rejectDonationForNGO(donationId: string, ngoId: string): Promise<void> {
+    try {
+      await updateDoc(doc(db, 'donations', donationId), {
+        rejectedByNGOs: arrayUnion(ngoId),
+        updatedAt: Timestamp.fromDate(new Date()),
+      });
+    } catch (error) {
+      console.error('Error rejecting donation for NGO:', error);
       throw error;
     }
   },
@@ -361,6 +443,22 @@ export const donationService = {
     });
   },
 
+  // Listen to real-time updates for donations claimed by a specific NGO
+  subscribeToClaimedDonations(ngoId: string, callback: (donations: FoodDonation[]) => void) {
+    const q = query(
+      collection(db, 'donations'),
+      where('claimedBy', '==', ngoId)
+    );
+
+    return onSnapshot(q, (querySnapshot) => {
+      const donations = querySnapshot.docs.map(mapDonationDoc) as FoodDonation[];
+      // Exclude delivered from the active dashboard feed
+      const active = donations.filter(d => d.status !== 'delivered');
+      const sorted = active.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      callback(sorted);
+    });
+  },
+
   // Get claimed donations for NGO
   async getClaimedDonations(ngoId: string): Promise<FoodDonation[]> {
     try {
@@ -407,6 +505,30 @@ export const donationService = {
       }));
     } catch (error) {
       console.error('Error fetching NGOs:', error);
+      throw error;
+    }
+  },
+
+  // Get donation by ID
+  async getDonationById(donationId: string): Promise<FoodDonation | null> {
+    try {
+      const docSnap = await getDoc(doc(db, 'donations', donationId));
+      if (!docSnap.exists()) return null;
+      return mapDonationDoc(docSnap);
+    } catch (error) {
+      console.error('Error fetching donation:', error);
+      throw error;
+    }
+  },
+
+  // Get user by ID
+  async getUserById(userId: string): Promise<any | null> {
+    try {
+      const docSnap = await getDoc(doc(db, 'users', userId));
+      if (!docSnap.exists()) return null;
+      return { id: docSnap.id, ...docSnap.data() };
+    } catch (error) {
+      console.error('Error fetching user:', error);
       throw error;
     }
   },
@@ -532,6 +654,30 @@ export const analyticsService = {
       }
     } catch (error) {
       console.error('Error updating volunteer stats:', error);
+      throw error;
+    }
+  },
+
+  // Get volunteer stats
+  async getVolunteerStats(volunteerId: string): Promise<VolunteerStats | null> {
+    try {
+      const statsDoc = await getDoc(doc(db, 'volunteer_stats', volunteerId));
+      if (statsDoc.exists()) {
+        const data = statsDoc.data() as any;
+        return {
+          id: statsDoc.id,
+          volunteerId,
+          totalDeliveries: data.totalDeliveries || 0,
+          totalMilesDriven: data.totalMilesDriven || 0,
+          totalMealsSaved: data.totalMealsSaved || 0,
+          rating: data.rating || 5,
+          badges: data.badges || [],
+          lastDelivery: data.lastDelivery?.toDate?.() || undefined,
+        } as VolunteerStats;
+      }
+      return null;
+    } catch (error) {
+      console.error('Error fetching volunteer stats:', error);
       throw error;
     }
   },

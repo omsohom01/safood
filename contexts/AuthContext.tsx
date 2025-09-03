@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User as FirebaseUser, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from 'firebase/auth';
+import { router } from 'expo-router';
+import { createUserWithEmailAndPassword, User as FirebaseUser, onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, db } from '../config/firebase';
-import { User, UserRole } from '../types';
+import { User } from '../types';
 
 interface AuthContextType {
   user: User | null;
@@ -30,9 +31,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    // Set loading to false immediately to test routing
-    setIsLoading(false);
-    
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setFirebaseUser(firebaseUser);
       
@@ -49,6 +47,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       } else {
         setUser(null);
+        // Ensure we navigate to the get started page when unauthenticated
+        try {
+          router.replace('/auth/welcome');
+        } catch {}
       }
       
       setIsLoading(false);
@@ -94,13 +96,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const handleSignOut = async () => {
+    console.log('SignOut initiated');
     setIsLoading(true);
     try {
       await signOut(auth);
       setUser(null);
       setFirebaseUser(null);
+      console.log('SignOut successful, navigating...');
+      // Navigate to welcome screen after successful sign out
+      setTimeout(() => {
+        router.replace('/auth/welcome');
+      }, 50);
     } catch (error) {
       console.error('Error signing out:', error);
+      throw error;
     } finally {
       setIsLoading(false);
     }

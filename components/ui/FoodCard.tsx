@@ -1,6 +1,6 @@
-import React from 'react';
-import { View, Text, Image, TouchableOpacity, ViewStyle } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import React from 'react';
+import { Image, Linking, Text, TouchableOpacity, View, ViewStyle } from 'react-native';
 import { FoodDonation, UserRole } from '../../types';
 
 interface FoodCardProps {
@@ -14,6 +14,7 @@ interface FoodCardProps {
   style?: ViewStyle;
   viewerRole?: UserRole;
   viewerUserId?: string;
+  openInOSM?: boolean; // If true, tapping card opens OSM directions to donation address
 }
 
 export const FoodCard: React.FC<FoodCardProps> = ({
@@ -65,7 +66,20 @@ export const FoodCard: React.FC<FoodCardProps> = ({
   };
 
   return (
-    <TouchableOpacity style={cardStyle} onPress={onPress} activeOpacity={0.8}>
+    <TouchableOpacity
+      style={cardStyle}
+      onPress={async () => {
+        if (viewerRole === 'volunteer') {
+          // Prefer opening OSM with address
+          const addr = donation.pickupLocation.address;
+          const url = `https://www.openstreetmap.org/directions?to=${encodeURIComponent(addr)}`;
+          try { await Linking.openURL(url); } catch {}
+          return;
+        }
+        onPress();
+      }}
+      activeOpacity={0.8}
+    >
       <View style={{ flexDirection: 'row' }}>
         {/* Food Image */}
         <View
@@ -102,24 +116,47 @@ export const FoodCard: React.FC<FoodCardProps> = ({
         <View style={{ flex: 1 }}>
           {/* Header */}
           <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
-            <Text style={{ fontSize: 16, fontWeight: '600', color: '#111827', flex: 1 }} numberOfLines={1}>
+            <Text style={{ fontSize: 16, fontWeight: '600', color: '#111827', flex: 1, marginRight: 8 }} numberOfLines={1}>
               {donation.title}
             </Text>
-    {showStatus && (
-              <View
-                style={{
-      backgroundColor: getBadge(donation.status).color,
-                  paddingHorizontal: 8,
-                  paddingVertical: 4,
-                  borderRadius: 8,
-                  marginLeft: 8,
-                }}
-              >
-                <Text style={{ fontSize: 10, fontWeight: '600', color: '#ffffff' }}>
-      {getBadge(donation.status).text}
-                </Text>
-              </View>
-            )}
+            
+            {/* Badge Container */}
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              {/* Urgent Badge */}
+              {donation.isUrgent && (
+                <View
+                  style={{
+                    backgroundColor: '#ef4444',
+                    paddingHorizontal: 6,
+                    paddingVertical: 2,
+                    borderRadius: 8,
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                  }}
+                >
+                  <Ionicons name="warning" size={10} color="#ffffff" />
+                  <Text style={{ fontSize: 9, fontWeight: '600', color: '#ffffff', marginLeft: 2 }}>
+                    URGENT
+                  </Text>
+                </View>
+              )}
+              
+              {/* Status Badge */}
+              {showStatus && (
+                <View
+                  style={{
+                    backgroundColor: getBadge(donation.status).color,
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    borderRadius: 8,
+                  }}
+                >
+                  <Text style={{ fontSize: 10, fontWeight: '600', color: '#ffffff' }}>
+                    {getBadge(donation.status).text}
+                  </Text>
+                </View>
+              )}
+            </View>
           </View>
 
           {/* Description */}
@@ -144,34 +181,55 @@ export const FoodCard: React.FC<FoodCardProps> = ({
 
           {/* Action Buttons */}
           {actionLabel && onActionPress && (
-            <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 10 }}>
               <TouchableOpacity
                 style={{
-                  backgroundColor: '#22c55e',
-                  paddingHorizontal: 12,
-                  paddingVertical: 6,
-                  borderRadius: 8,
-                  flex: secondaryActionLabel ? 1 : 0,
+                  flex: secondaryActionLabel ? 1 : undefined,
+                  backgroundColor: actionLabel.toLowerCase().includes('delivered') ? '#16a34a' : '#22c55e',
+                  paddingHorizontal: 16,
+                  paddingVertical: 10,
+                  borderRadius: 999,
+                  shadowColor: '#000',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.12,
+                  shadowRadius: 4,
+                  elevation: 3,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  flexDirection: 'row',
                 }}
                 onPress={onActionPress}
+                activeOpacity={0.9}
               >
-                <Text style={{ fontSize: 12, fontWeight: '600', color: '#ffffff', textAlign: 'center' }}>
+                {actionLabel.toLowerCase().includes('delivered') ? (
+                  <Ionicons name="checkmark-done" size={16} color="#ffffff" />
+                ) : (
+                  <Ionicons name="checkmark" size={16} color="#ffffff" />
+                )}
+                <Text style={{ fontSize: 13, fontWeight: '700', color: '#ffffff', marginLeft: 8 }}>
                   {actionLabel}
                 </Text>
               </TouchableOpacity>
-              
+
               {secondaryActionLabel && onSecondaryActionPress && (
                 <TouchableOpacity
                   style={{
-                    backgroundColor: '#ef4444',
-                    paddingHorizontal: 12,
-                    paddingVertical: 6,
-                    borderRadius: 8,
                     flex: 1,
+                    backgroundColor: '#ffffff',
+                    paddingHorizontal: 16,
+                    paddingVertical: 10,
+                    borderRadius: 999,
+                    borderWidth: 1,
+                    borderColor: '#ef4444',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'row',
                   }}
                   onPress={onSecondaryActionPress}
+                  activeOpacity={0.9}
                 >
-                  <Text style={{ fontSize: 12, fontWeight: '600', color: '#ffffff', textAlign: 'center' }}>
+                  <Ionicons name="close" size={16} color="#ef4444" />
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: '#ef4444', marginLeft: 8 }}>
                     {secondaryActionLabel}
                   </Text>
                 </TouchableOpacity>
@@ -180,28 +238,6 @@ export const FoodCard: React.FC<FoodCardProps> = ({
           )}
         </View>
       </View>
-
-      {/* Urgent Badge */}
-      {donation.isUrgent && (
-        <View
-          style={{
-            position: 'absolute',
-            top: 8,
-            right: 8,
-            backgroundColor: '#ef4444',
-            paddingHorizontal: 8,
-            paddingVertical: 4,
-            borderRadius: 12,
-            flexDirection: 'row',
-            alignItems: 'center',
-          }}
-        >
-          <Ionicons name="warning" size={12} color="#ffffff" />
-          <Text style={{ fontSize: 10, fontWeight: '600', color: '#ffffff', marginLeft: 4 }}>
-            URGENT
-          </Text>
-        </View>
-      )}
     </TouchableOpacity>
   );
 };

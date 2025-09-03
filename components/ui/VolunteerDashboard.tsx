@@ -1,26 +1,23 @@
-import React, { useState, useEffect } from 'react';
-import {
-  View,
-  StyleSheet,
-  FlatList,
-  Alert,
-  TouchableOpacity,
-  Modal,
-  Linking,
-  Platform,
-} from 'react-native';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { FoodCard } from '@/components/ui/FoodCard';
 import { NGOSelection } from '@/components/ui/NGOSelection';
-import { Ionicons } from '@expo/vector-icons';
+import { db } from '@/config/firebase';
 import { useAuth } from '@/contexts/AuthContext';
-import { donationService } from '@/services/firebaseService';
-import { LocationService } from '@/services/locationService';
+import { analyticsService, donationService } from '@/services/firebaseService';
 import { FoodDonation } from '@/types';
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { doc, updateDoc } from 'firebase/firestore';
-import { db } from '@/config/firebase';
+import React, { useEffect, useState } from 'react';
+import {
+    Alert,
+    FlatList,
+    Modal,
+    StyleSheet,
+    TouchableOpacity,
+    View
+} from 'react-native';
 
 export default function VolunteerDashboard() {
   const { user } = useAuth();
@@ -28,15 +25,26 @@ export default function VolunteerDashboard() {
   const [loading, setLoading] = useState(true);
   const [showNGOSelection, setShowNGOSelection] = useState(false);
   const [stats, setStats] = useState({
-    completedPickups: 0,
+  completedPickups: 0,
     pendingRequests: 0,
   });
 
   useEffect(() => {
     if (user?.role === 'volunteer') {
       loadPickupRequests();
+      loadVolunteerStats();
     }
   }, [user]);
+
+  const loadVolunteerStats = async () => {
+    if (!user) return;
+    try {
+      const vs = await analyticsService.getVolunteerStats(user.id);
+      setStats(prev => ({ ...prev, completedPickups: vs?.totalDeliveries || 0 }));
+    } catch (error) {
+      // non-blocking
+    }
+  };
 
   const loadPickupRequests = async () => {
     if (!user) return;
@@ -58,61 +66,27 @@ export default function VolunteerDashboard() {
     try {
       await donationService.acceptPickupRequest(donation.id, user.id, user.name);
       
-      // Get current location for navigation
-      const currentLocation = await LocationService.getCurrentLocation();
+      // Navigate to the map tab with the pickup details
+      router.push({
+        pathname: '/(tabs)/map',
+        params: {
+          pickupId: donation.id,
+          pickupAddress: donation.pickupLocation.address,
+          latitude: donation.pickupLocation.latitude.toString(),
+          longitude: donation.pickupLocation.longitude.toString(),
+          donorName: donation.donorName,
+          foodTitle: donation.title,
+        }
+      });
       
-      if (currentLocation && donation.pickupLocation) {
-        // Prepare navigation to donor's address
-        const targetLocation = {
-          latitude: donation.pickupLocation.latitude,
-          longitude: donation.pickupLocation.longitude,
-        };
-        
-        const userLocation = {
-          latitude: currentLocation.coords.latitude,
-          longitude: currentLocation.coords.longitude,
-        };
-        
-        // Get directions URL for navigation
-        const directionsUrl = LocationService.getDirectionsUrl(userLocation, targetLocation);
-        
-        Alert.alert(
-          'Pickup Accepted!',
-          `Navigate to: ${donation.pickupLocation.address}`,
-          [
-            {
-              text: 'Open Maps',
-              onPress: async () => {
-                try {
-                  if (Platform.OS === 'web') {
-                    window.open(directionsUrl, '_blank');
-                  } else {
-                    const supported = await Linking.canOpenURL(directionsUrl);
-                    if (supported) {
-                      await Linking.openURL(directionsUrl);
-                    } else {
-                      // Fallback to Google Maps web
-                      const fallbackUrl = `https://www.google.com/maps/dir/?api=1&origin=${userLocation.latitude},${userLocation.longitude}&destination=${targetLocation.latitude},${targetLocation.longitude}`;
-                      await Linking.openURL(fallbackUrl);
-                    }
-                  }
-                } catch (error) {
-                  console.error('Error opening navigation:', error);
-                  Alert.alert('Error', 'Could not open navigation app');
-                }
-              }
-            },
-            {
-              text: 'Later',
-              style: 'cancel'
-            }
-          ]
-        );
-      } else {
-        Alert.alert('Success', 'Pickup request accepted! Check the map tab for navigation.');
-      }
+      Alert.alert(
+        'Pickup Accepted!',
+        `Navigation to pickup location is now available in the Map tab.`,
+        [{ text: 'OK' }]
+      );
       
       loadPickupRequests(); // Refresh the list
+  loadVolunteerStats();
     } catch (error) {
       console.error('Error accepting pickup:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to accept pickup request';

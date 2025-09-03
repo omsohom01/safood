@@ -1,23 +1,94 @@
-import React, { useState, useEffect } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import * as Location from 'expo-location';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import React, { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
   Alert,
+  Linking,
   Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Location from 'expo-location';
-import { Ionicons } from '@expo/vector-icons';
-import { useAuth } from '../../contexts/AuthContext';
-import { FoodCard } from '../../components/ui/FoodCard';
 import { Button } from '../../components/ui/Button';
+import { FoodCard } from '../../components/ui/FoodCard';
+import { HamburgerMenu } from '../../components/ui/HamburgerMenu';
+import { NavigationMap } from '../../components/ui/NavigationMap';
+import { useAuth } from '../../contexts/AuthContext';
 import { donationService } from '../../services/firebaseService';
+import { LocationService } from '../../services/locationService';
 import { FoodDonation } from '../../types';
+
+// Known correct coordinates for common Indian locations
+const KNOWN_LOCATIONS: { [key: string]: { latitude: number; longitude: number } } = {
+  'barrackpore': { latitude: 22.7676, longitude: 88.3832 },
+  'barrackpur': { latitude: 22.7676, longitude: 88.3832 },
+  'kolkata': { latitude: 22.5726, longitude: 88.3639 },
+  'calcutta': { latitude: 22.5726, longitude: 88.3639 },
+  'mumbai': { latitude: 19.0760, longitude: 72.8777 },
+  'delhi': { latitude: 28.7041, longitude: 77.1025 },
+  'bangalore': { latitude: 12.9716, longitude: 77.5946 },
+  'chennai': { latitude: 13.0827, longitude: 80.2707 },
+  'hyderabad': { latitude: 17.3850, longitude: 78.4867 },
+  'pune': { latitude: 18.5204, longitude: 73.8567 },
+};
+
+// Function to fix incorrect coordinates
+const fixCoordinatesIfNeeded = async (donation: FoodDonation): Promise<FoodDonation> => {
+  const { latitude, longitude, address } = donation.pickupLocation;
+  
+  // Check if coordinates are outside India (rough bounding box)
+  const isOutsideIndia = latitude < 6.4 || latitude > 37.6 || longitude < 68.7 || longitude > 97.25;
+  
+  if (isOutsideIndia) {
+    console.log(`🔧 Fixing coordinates for ${address} - currently at ${latitude}, ${longitude}`);
+    
+    // Check for known locations first
+    const addressLower = address.toLowerCase();
+    for (const [key, coords] of Object.entries(KNOWN_LOCATIONS)) {
+      if (addressLower.includes(key)) {
+        console.log(`✅ Using known coordinates for ${key}: ${coords.latitude}, ${coords.longitude}`);
+        return {
+          ...donation,
+          pickupLocation: {
+            ...donation.pickupLocation,
+            latitude: coords.latitude,
+            longitude: coords.longitude,
+          }
+        };
+      }
+    }
+    
+    // Try to geocode the address correctly
+    try {
+      const correctedCoords = await LocationService.forwardGeocode(address);
+      if (correctedCoords) {
+        console.log(`✅ Geocoded ${address} to: ${correctedCoords.latitude}, ${correctedCoords.longitude}`);
+        return {
+          ...donation,
+          pickupLocation: {
+            ...donation.pickupLocation,
+            latitude: correctedCoords.latitude,
+            longitude: correctedCoords.longitude,
+          }
+        };
+      }
+    } catch (error) {
+      console.error('Error geocoding address:', error);
+    }
+    
+    console.log(`⚠️ Could not fix coordinates for ${address}, keeping original`);
+  }
+  
+  return donation;
+};
 
 export default function MapScreen() {
   const { user } = useAuth();
+  const params = useLocalSearchParams();
+  const router = useRouter();
   const [donations, setDonations] = useState<FoodDonation[]>([]);
   const [selectedDonation, setSelectedDonation] = useState<FoodDonation | null>(null);
   const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
@@ -28,18 +99,161 @@ export default function MapScreen() {
     longitudeDelta: 0.0421,
   });
   const [loading, setLoading] = useState(false);
+  const [pickupMode, setPickupMode] = useState(false);
+  const [pickupDetails, setPickupDetails] = useState<{
+    id: string;
+    address: string;
+    latitude: number;
+    longitude: number;
+    donorName: string;
+    foodTitle: string;
+    donorPhone?: string;
+    donorId?: string;
+  } | null>(null);
 
+  // Derive stable params to avoid effect thrashing
+  const pickupId = typeof params.pickupId === 'string' ? (params.pickupId as string) : undefined;
+  const pickupLat = typeof params.latitude === 'string' ? parseFloat(params.latitude as string) : undefined;
+  const pickupLng = typeof params.longitude === 'string' ? parseFloat(params.longitude as string) : undefined;
+  const pickupAddress = typeof params.pickupAddress === 'string' ? (params.pickupAddress as string) : undefined;
+  const donorName = typeof params.donorName === 'string' ? (params.donorName as string) : undefined;
+  const foodTitle = typeof params.foodTitle === 'string' ? (params.foodTitle as string) : undefined;
+
+  // Function to validate if coordinates are in India
+  const isValidIndianLocation = (lat: number, lng: number): boolean => {
+    // India's approximate bounding box
+    const indiaBounds = {
+      north: 37.6,
+      south: 6.4,
+      east: 97.4,
+      west: 68.1
+    };
+    
+    return lat >= indiaBounds.south && lat <= indiaBounds.north &&
+           lng >= indiaBounds.west && lng <= indiaBounds.east;
+  };
+
+  // Function to fix coordinates for known Indian locations
+  const fixLocationCoordinates = async (address: string, currentLat: number, currentLng: number) => {
+    // If current coordinates are already valid, keep them
+    if (isValidIndianLocation(currentLat, currentLng)) {
+      return { latitude: currentLat, longitude: currentLng };
+    }
+
+    // Known correct coordinates for common locations
+    const knownLocations: { [key: string]: { latitude: number; longitude: number } } = {
+      'barrackpore': { latitude: 22.7676, longitude: 88.3715 }, // Barrackpore, West Bengal
+      'barrackpur': { latitude: 22.7676, longitude: 88.3715 },
+      'kolkata': { latitude: 22.5726, longitude: 88.3639 },
+      'delhi': { latitude: 28.7041, longitude: 77.1025 },
+      'mumbai': { latitude: 19.0760, longitude: 72.8777 },
+      'bangalore': { latitude: 12.9716, longitude: 77.5946 },
+      'chennai': { latitude: 13.0827, longitude: 80.2707 },
+      'hyderabad': { latitude: 17.3850, longitude: 78.4867 },
+      'pune': { latitude: 18.5204, longitude: 73.8567 },
+    };
+
+    // Check if it's a known location
+    const addressLower = address.toLowerCase();
+    for (const [city, coords] of Object.entries(knownLocations)) {
+      if (addressLower.includes(city)) {
+        console.log(`Using known coordinates for ${city}:`, coords);
+        return coords;
+      }
+    }
+
+    // Try to get correct coordinates using enhanced geocoding
+    try {
+      const correctCoords = await LocationService.forwardGeocode(address);
+      if (correctCoords && isValidIndianLocation(correctCoords.latitude, correctCoords.longitude)) {
+        console.log(`Fixed location for ${address}:`, correctCoords);
+        return correctCoords;
+      }
+    } catch (error) {
+      console.error('Error fixing coordinates:', error);
+    }
+
+    // Return original coordinates as fallback
+    return { latitude: currentLat, longitude: currentLng };
+  };
+
+  // 1) Handle pickup params independently (stable, only when params change)
+  useEffect(() => {
+    // Check if we have pickup navigation parameters
+    if (pickupId && pickupLat != null && pickupLng != null) {
+      setPickupMode(true);
+      
+      // Load full donation details to get donor info
+      const loadDonationDetails = async () => {
+        try {
+          const donation = await donationService.getDonationById(pickupId);
+          if (donation) {
+            const donor = await donationService.getUserById(donation.donorId);
+            setPickupDetails({
+              id: pickupId,
+              address: pickupAddress || donation.pickupLocation.address || '',
+              latitude: pickupLat,
+              longitude: pickupLng,
+              donorName: donorName || donation.donorName || '',
+              foodTitle: foodTitle || donation.title || '',
+              donorPhone: donor?.phone,
+              donorId: donation.donorId,
+            });
+          } else {
+            // Fallback to params only
+            setPickupDetails({
+              id: pickupId,
+              address: pickupAddress || '',
+              latitude: pickupLat,
+              longitude: pickupLng,
+              donorName: donorName || '',
+              foodTitle: foodTitle || '',
+            });
+          }
+        } catch (error) {
+          console.error('Error loading donation details:', error);
+          // Fallback to params only
+          setPickupDetails({
+            id: pickupId,
+            address: pickupAddress || '',
+            latitude: pickupLat,
+            longitude: pickupLng,
+            donorName: donorName || '',
+            foodTitle: foodTitle || '',
+          });
+        }
+      };
+
+      loadDonationDetails();
+
+      // Set map region to pickup location
+      setMapRegion({
+        latitude: pickupLat,
+        longitude: pickupLng,
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      });
+    } else {
+      setPickupMode(false);
+      setPickupDetails(null);
+    }
+  }, [pickupId, pickupLat, pickupLng, pickupAddress, donorName, foodTitle]);
+
+  // 2) Get user location once on mount (don’t tie to changing deps)
   useEffect(() => {
     getCurrentLocation();
-    loadDonations();
-    // Subscribe to live updates for availability
+  }, []);
+
+  // 3) Load and subscribe to donations when user/role becomes available
+  useEffect(() => {
     if (!user) return;
+    loadDonations();
     let unsubscribe: (() => void) | null = null;
     if (user.role === 'ngo') {
       unsubscribe = donationService.subscribeToAvailableDonations(setDonations);
     }
     return () => { if (unsubscribe) unsubscribe(); };
-  }, [user]);
+  }, [user?.id, user?.role]);
 
   const getCurrentLocation = async () => {
     try {
@@ -74,7 +288,34 @@ export default function MapScreen() {
         availableDonations = await donationService.getAvailablePickups();
       }
       
-      setDonations(availableDonations);
+      // Fix coordinates for donations with invalid locations
+      const fixedDonations = await Promise.all(
+        availableDonations.map(async (donation) => {
+          const { latitude, longitude } = donation.pickupLocation;
+          
+          if (!isValidIndianLocation(latitude, longitude)) {
+            console.log(`Invalid location detected for donation ${donation.id}: ${donation.pickupLocation.address}`);
+            const fixedCoords = await fixLocationCoordinates(
+              donation.pickupLocation.address,
+              latitude,
+              longitude
+            );
+            
+            return {
+              ...donation,
+              pickupLocation: {
+                ...donation.pickupLocation,
+                latitude: fixedCoords.latitude,
+                longitude: fixedCoords.longitude,
+              }
+            };
+          }
+          
+          return donation;
+        })
+      );
+      
+      setDonations(fixedDonations);
     } catch (error) {
       console.error('Error loading donations:', error);
     }
@@ -154,6 +395,7 @@ export default function MapScreen() {
   if (!user || (user.role !== 'ngo' && user.role !== 'volunteer')) {
     return (
       <SafeAreaView style={styles.container}>
+        <HamburgerMenu currentRoute="/(tabs)/map" />
         <View style={styles.errorContainer}>
           <Ionicons name="map-outline" size={64} color="#9ca3af" />
           <Text style={styles.errorTitle}>Map View</Text>
@@ -167,97 +409,201 @@ export default function MapScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>
-          {user.role === 'ngo' ? 'Find Donations' : 'Find Pickups'}
-        </Text>
-        <Text style={styles.subtitle}>
-          {donations.length} available nearby
-        </Text>
-      </View>
-
-      <View style={styles.mapContainer}>
-        {/* Unified donation list view for all platforms */}
-        <View style={styles.webMapFallback}>
-          <View style={styles.webMapHeader}>
-            <Ionicons name="map-outline" size={32} color="#22c55e" />
-            <Text style={styles.webMapTitle}>Donation Map</Text>
-            <Text style={styles.webMapSubtitle}>
-              {Platform.OS === 'web' 
-                ? 'Interactive map is available on mobile devices' 
-                : 'Map feature coming soon'}
+      <HamburgerMenu currentRoute="/(tabs)/map" />
+      
+      {/* Pickup Navigation Mode */}
+      {pickupMode && pickupDetails ? (
+        <View style={styles.pickupNavigationContainer}>
+          <View style={styles.pickupHeader}>
+            <View style={styles.pickupHeaderTop}>
+              <Text style={styles.pickupTitle}>Navigation to Pickup</Text>
+              <TouchableOpacity 
+                style={styles.closeButton} 
+                onPress={() => {
+                  setPickupMode(false);
+                  setPickupDetails(null);
+                  router.replace('/(tabs)/map');
+                }}
+              >
+                <Ionicons name="close" size={24} color="#6b7280" />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.pickupSubtitle}>{pickupDetails.foodTitle}</Text>
+          </View>
+          
+          <View style={styles.pickupDetailsCard}>
+            <View style={styles.pickupInfoRow}>
+              <Ionicons name="person-outline" size={20} color="#22c55e" />
+              <Text style={styles.pickupInfoText}>Donor: {pickupDetails.donorName}</Text>
+            </View>
+            <View style={styles.pickupInfoRow}>
+              <Ionicons name="location-outline" size={20} color="#22c55e" />
+              <Text style={styles.pickupInfoText}>{pickupDetails.address}</Text>
+            </View>
+          </View>
+          
+          <View style={styles.pickupMapArea}>
+            <NavigationMap
+              destination={{
+                latitude: pickupDetails.latitude,
+                longitude: pickupDetails.longitude,
+                address: pickupDetails.address,
+              }}
+              donorName={pickupDetails.donorName}
+              foodTitle={pickupDetails.foodTitle}
+            />
+          </View>
+          
+          <View style={styles.pickupActions}>
+            <TouchableOpacity 
+              style={styles.directionsButton}
+              onPress={async () => {
+                if (pickupDetails?.donorPhone) {
+                  Alert.alert(
+                    'Contact Donor',
+                    `Call ${pickupDetails.donorName} for pickup instructions?`,
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      { 
+                        text: 'Call', 
+                        onPress: async () => {
+                          try {
+                            const phoneUrl = `tel:${pickupDetails.donorPhone}`;
+                            const canCall = await Linking.canOpenURL(phoneUrl);
+                            if (canCall) {
+                              await Linking.openURL(phoneUrl);
+                            } else {
+                              Alert.alert('Error', 'Unable to make phone calls on this device');
+                            }
+                          } catch (error) {
+                            console.error('Error making phone call:', error);
+                            Alert.alert('Error', 'Failed to initiate phone call');
+                          }
+                        }
+                      }
+                    ]
+                  );
+                } else {
+                  Alert.alert(
+                    'Contact Information',
+                    'Donor phone number not available. Please contact them through the app or NGO.',
+                    [{ text: 'OK' }]
+                  );
+                }
+              }}
+            >
+              <Ionicons name="call" size={20} color="#ffffff" />
+              <Text style={styles.directionsButtonText}>Contact Donor</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={styles.callButton}
+              onPress={() => {
+                setPickupMode(false);
+                setPickupDetails(null);
+                router.replace('/(tabs)/map');
+              }}
+            >
+              <Ionicons name="close" size={20} color="#22c55e" />
+              <Text style={styles.callButtonText}>End Navigation</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <>
+          <View style={styles.header}>
+            <Text style={styles.title}>
+              {user.role === 'ngo' ? 'Find Donations' : 'Find Pickups'}
+            </Text>
+            <Text style={styles.subtitle}>
+              {donations.length} available nearby
             </Text>
           </View>
-          <View style={styles.donationsList}>
-            {donations.map((donation) => (
-              <TouchableOpacity
-                key={donation.id}
-                style={styles.donationListItem}
-                onPress={() => handleMarkerPress(donation)}
-              >
-                <View style={styles.donationListContent}>
-                  <View style={[styles.statusDot, { backgroundColor: getMarkerColor(donation) }]} />
-                  <View style={styles.donationInfo}>
-                    <Text style={styles.donationTitle}>{donation.title}</Text>
-                    <Text style={styles.donationLocation}>
-                      {donation.pickupLocation.address}
-                    </Text>
-                    <Text style={styles.donationQuantity}>
-                      Deadline: {donation.deadline.toLocaleDateString()} {donation.deadline.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
-                    </Text>
-                  </View>
-                  {donation.isUrgent && (
-                    <View style={styles.urgentIndicator}>
-                      <Ionicons name="warning" size={16} color="#ef4444" />
+
+          <View style={styles.mapContainer}>
+            {/* Unified donation list view for all platforms */}
+            <View style={styles.webMapFallback}>
+              <View style={styles.webMapHeader}>
+                <Ionicons name="map-outline" size={32} color="#22c55e" />
+                <Text style={styles.webMapTitle}>Donation Map</Text>
+                <Text style={styles.webMapSubtitle}>
+                  {Platform.OS === 'web' 
+                    ? 'Interactive map is available on mobile devices' 
+                    : 'Map feature coming soon'}
+                </Text>
+              </View>
+              <View style={styles.donationsList}>
+                {donations.map((donation) => (
+                  <TouchableOpacity
+                    key={donation.id}
+                    style={styles.donationListItem}
+                    onPress={() => handleMarkerPress(donation)}
+                  >
+                    <View style={styles.donationListContent}>
+                      <View style={[styles.statusDot, { backgroundColor: getMarkerColor(donation) }]} />
+                      <View style={styles.donationInfo}>
+                        <Text style={styles.donationTitle}>{donation.title}</Text>
+                        <Text style={styles.donationLocation}>
+                          {donation.pickupLocation.address}
+                        </Text>
+                        <Text style={styles.donationQuantity}>
+                          Deadline: {donation.deadline.toLocaleDateString()} {donation.deadline.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                        </Text>
+                      </View>
+                      {donation.isUrgent && (
+                        <View style={styles.urgentIndicator}>
+                          <Ionicons name="warning" size={16} color="#ef4444" />
+                        </View>
+                      )}
                     </View>
-                  )}
-                </View>
-              </TouchableOpacity>
-            ))}
-          </View>
-        </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
 
-        {/* Legend */}
-        <View style={styles.legend}>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#22c55e' }]} />
-            <Text style={styles.legendText}>Available</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#f97316' }]} />
-            <Text style={styles.legendText}>Claimed</Text>
-          </View>
-          <View style={styles.legendItem}>
-            <View style={[styles.legendDot, { backgroundColor: '#ef4444' }]} />
-            <Text style={styles.legendText}>Urgent</Text>
-          </View>
-        </View>
+            {/* Legend */}
+            <View style={styles.legend}>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#22c55e' }]} />
+                <Text style={styles.legendText}>Available</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#f97316' }]} />
+                <Text style={styles.legendText}>Claimed</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#ef4444' }]} />
+                <Text style={styles.legendText}>Urgent</Text>
+              </View>
+            </View>
 
-        {/* Refresh Button */}
-        <TouchableOpacity style={styles.refreshButton} onPress={loadDonations}>
-          <Ionicons name="refresh" size={24} color="#ffffff" />
-        </TouchableOpacity>
-      </View>
-
-      {/* Selected Donation Details */}
-      {selectedDonation && (
-        <View style={styles.detailsContainer}>
-          <View style={styles.detailsHeader}>
-            <Text style={styles.detailsTitle}>Donation Details</Text>
-            <TouchableOpacity onPress={() => setSelectedDonation(null)}>
-              <Ionicons name="close" size={24} color="#6b7280" />
+            {/* Refresh Button */}
+            <TouchableOpacity style={styles.refreshButton} onPress={loadDonations}>
+              <Ionicons name="refresh" size={24} color="#ffffff" />
             </TouchableOpacity>
           </View>
 
-          <FoodCard
-            donation={selectedDonation}
-            onPress={() => {}}
-            showStatus={true}
-            style={styles.selectedCard}
-          />
+          {/* Selected Donation Details */}
+          {selectedDonation && (
+            <View style={styles.detailsContainer}>
+              <View style={styles.detailsHeader}>
+                <Text style={styles.detailsTitle}>Donation Details</Text>
+                <TouchableOpacity onPress={() => setSelectedDonation(null)}>
+                  <Ionicons name="close" size={24} color="#6b7280" />
+                </TouchableOpacity>
+              </View>
 
-          {getActionButton()}
-        </View>
+              <FoodCard
+                donation={selectedDonation}
+                onPress={() => {}}
+                showStatus={true}
+                style={styles.selectedCard}
+              />
+
+              {getActionButton()}
+            </View>
+          )}
+        </>
       )}
     </SafeAreaView>
   );
@@ -484,6 +830,131 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
   },
   urgentIndicator: {
+    marginLeft: 8,
+  },
+  // Pickup Navigation Styles
+  pickupNavigationContainer: {
+    flex: 1,
+    backgroundColor: '#f8fafc',
+  },
+  pickupHeader: {
+    backgroundColor: '#ffffff',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+  },
+  pickupHeaderTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  pickupTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+  },
+  pickupSubtitle: {
+    fontSize: 16,
+    color: '#6b7280',
+    fontWeight: '500',
+  },
+  closeButton: {
+    padding: 4,
+  },
+  pickupDetailsCard: {
+    backgroundColor: '#ffffff',
+    margin: 16,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  pickupInfoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  pickupInfoText: {
+    marginLeft: 12,
+    fontSize: 16,
+    color: '#111827',
+    flex: 1,
+  },
+  pickupMapArea: {
+    flex: 1,
+    margin: 16,
+    marginTop: 0,
+    borderRadius: 12,
+    overflow: 'hidden',
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  mapPlaceholder: {
+    backgroundColor: '#ffffff',
+    borderRadius: 12,
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    minHeight: 200,
+  },
+  mapPlaceholderTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  mapPlaceholderText: {
+    fontSize: 14,
+    color: '#6b7280',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  coordinatesText: {
+    fontSize: 12,
+    color: '#9ca3af',
+    textAlign: 'center',
+  },
+  pickupActions: {
+    flexDirection: 'row',
+    margin: 16,
+    marginTop: 0,
+    gap: 12,
+  },
+  directionsButton: {
+    flex: 1,
+    backgroundColor: '#22c55e',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+  },
+  directionsButtonText: {
+    color: '#ffffff',
+    fontWeight: '600',
+    fontSize: 16,
+    marginLeft: 8,
+  },
+  callButton: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#22c55e',
+  },
+  callButtonText: {
+    color: '#22c55e',
+    fontWeight: '600',
+    fontSize: 16,
     marginLeft: 8,
   },
 });
